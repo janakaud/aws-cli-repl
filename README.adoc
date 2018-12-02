@@ -1,0 +1,122 @@
+= WTF is this?
+
+This is a https://en.m.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop[REPL (read-eval-print loop)] version of the https://github.com/aws/aws-cli[`aws-cli`]; one that can run multiple commands via a single AWS CLI session.
+
+
+= Isn't that what `aws-shell` is for?
+
+I wish it were - but, leaving aside the REPL interface (interactive user prompt), handy autocompletion, syntax coloring and inline docs, https://github.com/awslabs/aws-shell/blob/master/README.rst[`aws-shell`] does not give you any performance advantage over `aws-cli`. Every command in the shell is executed in a new AWS CLI instance - with parsers, command hierarchies, API specs and - more importantly _API clients_ - getting recreated for every command.
+
+== So what?
+
+It won't matter if you're running just one or two commands, but if you use `aws-cli` for automated batch processing, monitoring or periodic cleanup (like I do) you'll see major performance gains if you start reusing API clients (`boto` clients, in case of `aws-cli`).
+
+== How so?
+
+In the "regular" approach, each newly created API client has to establish a fresh network connection to the AWS API endpoint, which usually involves a DNS lookup and almost always a full https://security.stackexchange.com/questions/56623/avoiding-ssl-handshake-for-each-call[SSL handshake], wasting network bandwidth and adding a significant latency.
+
+Under the standard AWS CLI, this happens for every invocation (command); as each command spawns a new process, which does all this initialization and connectivity stuff, but then discards everything as the process dies at command completion.
+
+Additionally there's always the overhead of process spawning, loading of binaries, configs and https://github.com/boto/botocore/tree/master/botocore/data/[API definitions], dynamic https://github.com/boto/botocore/blob/master/botocore/client.py[generation] of `boto` client classes, initialization of parsers, command maps, https://github.com/boto/botocore/blob/master/botocore/hooks.py[event handlers], https://github.com/aws/aws-cli/blob/master/awscli/customizations/__init__.py[customizations] and god-knows-what-else stuff. While this overhead is quite acceptable for a few invocations, it can add up when you're batching hundreds of consecutive invocations.
+
+
+= So, what's the magic behind your `aws-cli-repl`?
+
+This REPL breaks the CLI into two components: a _client_ and a _daemon_ (just a background process, to be frank).
+
+== The client
+
+It simply:
+
+* accepts user commands (just like the user-facing portion of the CLI),
+* passes them to the daemon via a https://www.roman10.net/2011/04/21/named-pipe-in-linux-with-a-python-example/[named pipe],
+* reads the result from another named pipe and
+* shows it to the user.
+
+== The daemon
+
+This has the fun stuff. At launch, it:
+
+* initializes an https://github.com/aws/aws-cli/blob/master/awscli/clidriver.py[`awscli.CLIDriver`] instance
+* patches `__init__` and `invoke` on https://github.com/aws/aws-cli/blob/master/awscli/clidriver.py[`awscli.CLIOperationCaller`], to cache the `client` objects created during `invoke`
+
+Then it starts to loop:
+
+* point `sys.stdin` to the client's output pipe, and `sys.stdout` to its input pipe,
+* read user commands (piped by the client),
+* feed them to `CLIDriver`'s `main` method, causing a CLI invocation, and
+* the CLI writes the output to `sys.stdout`, effectively piping it back to the client
+
+This way, the `CLIDriver` instance (and hence the clients cached by `CLIOperationCaller`s) are kept alive throughout the life of the daemon, no matter how many times the client gets invoked; yielding all the benefits that we discussed before.
+
+== How does the daemon launch?
+
+During its first invocation, the REPL checks for the existence of the daemon in the system's https://stackoverflow.com/questions/46979567/find-processes-by-command-in-python[process list]. If it doesn't see one, it forks itself, after which one of the two processes become the daemon, and the other continues as the client.
+
+So it effectively initializes itself during the first run, and remains alive as long as possible; consuming little resources (as it's only waiting to read from the named pipe). If it somehow gets killed, the next REPL invocation will spawn a new daemon.
+
+
+= Installation
+
+== Prerequisites
+
+* Python 2.7 (3.x _might_ work, with some tweaks)
+* https://github.com/aws/aws-cli[`awscli`]
+* https://github.com/giampaolo/psutil[`psutil`]
+
+== Installation
+
+Assuming the `awscli` module is resolvable by Python (e.g. via `PYTHONPATH`), simply
+
+* add `awsr` to the system `PATH`, and
+* make it executable.
+
+== Invocation
+
+`awsr` should work the same way as `aws` since it simply proxies everything to `aws`.
+
+```
+awsr ec2 describe-instances
+```
+
+Watch-mode commands that produce progressive output (like `ec2 wait instance-running`) may not work as expected (since the client does not receive output until the command execution completes).
+
+
+= What kind of improvement am I looking at?
+
+I don't have concrete figures (yet), but my first try with a batch deletion of https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/Working-with-log-groups-and-streams.html[CloudWatch log groups] was quite impressive.
+
+Deleting around 100 log groups via the standard `aws` command:
+* took around 4 minutes and
+* consumed around 1.6MB of data,
+* with DNS lookups and full SSL handshakes happening for every single request (verified via https://www.wireshark.org/[Wireshark]).
+
+Deleting around 150 log groups via `awsr`:
+* took around 2 minutes and
+* consumed less than 1MB of data,
+* with one initial DNS lookup, SSL handshakes limited to once per minute (could probably be further improved by tuning `boto`'s connectivity options).
+
+Results may vary across AWS services and usage patterns, but I'm quite satisfied with what I've seen so far.
+
+
+= What's the catch?
+
+There's a lot:
+
+* As of now you cannot run multiple `awsr` commands in parallel, since the daemon doesn't distinguish between individual clients; it simply reads from and writes to the pipes.
+* Global parameters are not re-initialized for subsequent client calls. If you invoked it for `us-east-1` under profile `golum`, all subsequent commands executed by that daemon will run against the same region and profile. This can probably be avoided by invalidating or expanding the client cache; I'll need to look into that further.
+* `sys.stderr` is not redirected from daemon to client, so any errors (say, a S3 403 Forbidden) on the daemon will not be visible at the client - unless they're running in the same terminal window.
+* Some extensions like S3 don't seem to benefit from the caching - even when invoked against the same bucket. It needs further investigation.
+* Only supports Python 2.7 (although I believe only a few tweaks would suffice to port it to 3.x).
+
+
+= Disclaimer
+
+No need to drag on with formalities; _you're on your own_.
+
+I will continue to experiment with `awsr` and attempt to fix issues as and when required (and possible), but it is still considered highly experimental and unstable :)
+
+
+= Contributing
+
+Feel free to report any issues that you encounter while using the tool; or, better still, submit a PR (after all, there's not even a hundred lines of code here so far :))

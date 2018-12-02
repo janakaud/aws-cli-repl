@@ -1,0 +1,77 @@
+#!/usr/bin/python
+
+import os
+import sys
+import tempfile
+import psutil
+
+rd = tempfile.gettempdir() + "/awsr_rd"
+wr = tempfile.gettempdir() + "/awsr_wr"
+
+
+def run_client():
+	out = open(rd, "w")
+	out.write(" ".join(sys.argv))
+	out.write("\n")
+	out.close()
+	result = open(wr, "r").read()
+	sys.stdout.write(result)
+
+def run_daemon():
+	from awscli.clidriver import CLIOperationCaller, LOG, create_clidriver, HISTORY_RECORDER
+
+	def patchedInit(self, session):
+		self._session = session
+		self._client = None
+
+	def patchedInvoke(self, service_name, operation_name, parameters, parsed_globals):
+		if self._client is None:
+			LOG.debug("Creating new %s client" % service_name)
+			self._client = self._session.create_client(
+				service_name, region_name=parsed_globals.region,
+				endpoint_url=parsed_globals.endpoint_url,
+				verify=parsed_globals.verify_ssl)
+		client = self._client
+
+		response = self._make_client_call(
+			client, operation_name, parameters, parsed_globals)
+		self._display_response(operation_name, response, parsed_globals)
+		return 0
+
+	CLIOperationCaller.__init__ = patchedInit
+	CLIOperationCaller.invoke = patchedInvoke
+
+	driver = create_clidriver()
+	while True:
+		sys.stdin = open(rd, "r")
+		args = raw_input().split(" ")[1:]
+		sys.stdout = open(wr, "w")
+		if len(args) > 0 and args[0] == "exit":
+			sys.exit(0)
+		rc = driver.main(args)
+		HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
+		sys.stdout.close()
+
+
+if __name__ == "__main__":
+	if not os.access(rd, os.R_OK | os.W_OK):
+		os.mkfifo(rd)
+	if not os.access(wr, os.R_OK | os.W_OK):
+		os.mkfifo(wr)
+
+	# fork if awsr daemon is not already running
+	ps = psutil.process_iter(attrs=["cmdline"])
+	procs = 0
+	for p in ps:
+		cmd = p.info["cmdline"]
+		if len(cmd) > 1 and cmd[0].endswith("python") and cmd[1] == sys.argv[0]:
+			procs += 1
+	if procs < 2:
+		sys.stderr.write("Forking new awsr background process\n")
+		pid = os.fork()
+		if pid == 0:	# child = daemon
+			run_daemon()
+		else:
+			run_client()
+	else:
+		run_client()
