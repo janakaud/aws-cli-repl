@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import psutil
+import subprocess
 
 rd = tempfile.gettempdir() + "/awsr_rd"
 wr = tempfile.gettempdir() + "/awsr_wr"
@@ -14,8 +15,13 @@ def run_client():
 	out.write(" ".join(sys.argv))
 	out.write("\n")
 	out.close()
-	result = open(wr, "r").read()
+
+	inp = open(wr, "r")
+	result = inp.read()
+	inp.close()
+
 	sys.stdout.write(result)
+
 
 def run_daemon():
 	from awscli.clidriver import CLIOperationCaller, LOG, create_clidriver, HISTORY_RECORDER
@@ -43,12 +49,16 @@ def run_daemon():
 
 	driver = create_clidriver()
 	while True:
-		sys.stdin = open(rd, "r")
-		args = raw_input().split(" ")[1:]
-		sys.stdout = open(wr, "w")
+		inp = open(rd, "r")
+		args = inp.read()[:-1].split(" ")[1:]
+		inp.close()
+
 		if len(args) > 0 and args[0] == "exit":
 			sys.exit(0)
+
+		sys.stdout = open(wr, "w")
 		rc = driver.main(args)
+
 		HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
 		sys.stdout.close()
 
@@ -68,10 +78,12 @@ if __name__ == "__main__":
 			procs += 1
 	if procs < 2:
 		sys.stderr.write("Forking new awsr background process\n")
-		pid = os.fork()
-		if pid == 0:	# child = daemon
-			run_daemon()
-		else:
-			run_client()
-	else:
-		run_client()
+                with open(os.devnull, 'r+b', 0) as DEVNULL:
+                        # new instance will see env var, and run itself as daemon
+                        p = subprocess.Popen(sys.argv, stdin=DEVNULL, stdout=DEVNULL, stderr=DEVNULL, close_fds=True, env={"AWSR_DAEMON": "True"})
+                        run_client()
+
+        elif os.environ.get("AWSR_DAEMON") == "True":
+                run_daemon()
+        else:
+                run_client()

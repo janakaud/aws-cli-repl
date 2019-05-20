@@ -51,7 +51,8 @@ This way, the `CLIDriver` instance (and hence the clients cached by `CLIOperatio
 
 == How does the daemon launch?
 
-During its first invocation, the REPL checks for the existence of the daemon in the system's https://stackoverflow.com/questions/46979567/find-processes-by-command-in-python[process list]. If it doesn't see one, it forks itself, after which one of the two processes become the daemon, and the other continues as the client.
+During its first invocation, the REPL checks for the existence of the daemon in the system's https://stackoverflow.com/questions/46979567/find-processes-by-command-in-python[process list].
+If it doesn't see one, it spawns a copy of itself, flagging it to run as the daemon - and continues its own journey as client, calling the new daemon via pipes as usual.
 
 So it effectively initializes itself during the first run, and remains alive as long as possible; consuming little resources (as it's only waiting to read from the named pipe). If it somehow gets killed, the next REPL invocation will spawn a new daemon.
 
@@ -87,11 +88,13 @@ Watch-mode commands that produce progressive output (like `ec2 wait instance-run
 I don't have concrete figures (yet), but my first try with a batch deletion of https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/Working-with-log-groups-and-streams.html[CloudWatch log groups] was quite impressive.
 
 Deleting around 100 log groups via the standard `aws` command:
+
 * took around 4 minutes and
 * consumed around 1.6MB of data,
 * with DNS lookups and full SSL handshakes happening for every single request (verified via https://www.wireshark.org/[Wireshark]).
 
 Deleting around 150 log groups via `awsr`:
+
 * took around 2 minutes and
 * consumed less than 1MB of data,
 * with one initial DNS lookup, SSL handshakes limited to once per minute (could probably be further improved by tuning `boto`'s connectivity options).
