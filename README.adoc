@@ -3,7 +3,7 @@
 This is a https://en.m.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop[REPL (read-eval-print loop)] version of the https://github.com/aws/aws-cli[`aws-cli`]; one that can run multiple commands via a single AWS CLI session.
 
 
-= Isn't that what `aws-shell` is for?
+== Isn't that what `aws-shell` is for?
 
 I wish it were - but, leaving aside the REPL interface (interactive user prompt), handy autocompletion, syntax coloring and inline docs, https://github.com/awslabs/aws-shell/blob/master/README.rst[`aws-shell`] does not give you any performance advantage over `aws-cli`. Every command in the shell is executed in a new AWS CLI instance - with parsers, command hierarchies, API specs and - more importantly _API clients_ - getting recreated for every command.
 
