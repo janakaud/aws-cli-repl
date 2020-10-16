@@ -74,7 +74,7 @@ if __name__ == "__main__":
 	procs = 0
 	for p in ps:
 		cmd = p.info["cmdline"]
-		if len(cmd) > 1 and cmd[0].endswith("python") and cmd[1] == sys.argv[0]:
+		if cmd and len(cmd) > 1 and cmd[0].endswith("python") and cmd[1] == sys.argv[0]:
 			procs += 1
 	if procs < 2:
 		sys.stderr.write("Forking new awsr background process\n")
