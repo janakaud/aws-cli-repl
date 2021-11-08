@@ -15,6 +15,12 @@ def run_client():
 	out = open(rd, "w")
 	out.write(" ".join(sys.argv))
 	out.write("\n")
+	if "-" in sys.argv:
+		while True:
+			data = sys.stdin.read(4096)
+			if data == "":
+				break
+			out.write(data)
 	out.close()
 
 	inp = open(wr, "r")
@@ -51,17 +57,27 @@ def run_daemon():
 	driver = create_clidriver()
 	while True:
 		inp = open(rd, "r")
-		args = inp.read()[:-1].split(" ")[1:]
-		inp.close()
+		os.dup2(inp.fileno(), 0)
+		args = bytes()
+		while True:
+			ch = os.read(inp.fileno(), 1)
+			if ch == b"\n" or ch == b"":
+				break
+			args += ch
+		args = args.decode("utf-8").split(" ")[1:]
 
 		if len(args) > 0 and args[0] == "exit":
 			sys.exit(0)
 
+		sys.stdin = inp
+		old_stdout = sys.stdout
 		sys.stdout = open(wr, "w")
 		rc = driver.main(args)
 
 		HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
 		sys.stdout.close()
+		sys.stdout = old_stdout
+		inp.close()
 
 
 if __name__ == "__main__":
