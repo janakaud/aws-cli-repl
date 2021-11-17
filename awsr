@@ -64,11 +64,18 @@ def run_daemon():
 		sys.stdout.close()
 
 
-if __name__ == "__main__":
+def main():
 	if not os.access(rd, os.R_OK | os.W_OK):
 		os.mkfifo(rd)
 	if not os.access(wr, os.R_OK | os.W_OK):
 		os.mkfifo(wr)
+
+	if os.environ.get("AWSR_CLIENT") == "True":
+		run_client()
+		return
+	elif os.environ.get("AWSR_DAEMON") == "True":
+		run_daemon()
+		return
 
 	# fork if awsr daemon is not already running
 	ps = psutil.process_iter(attrs=["cmdline"])
@@ -87,7 +94,8 @@ if __name__ == "__main__":
 			})
 			run_client()
 
-	elif os.environ.get("AWSR_DAEMON") == "True":
-		run_daemon()
 	else:
 		run_client()
+
+if __name__ == "__main__":
+	main()
