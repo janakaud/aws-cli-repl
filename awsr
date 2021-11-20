@@ -23,11 +23,17 @@ def run_client():
 			out.write(data)
 	out.close()
 
-	inp = open(wr, "r")
-	result = inp.read()
-	inp.close()
-
-	sys.stdout.write(result)
+	last = None
+	with open(wr, "r") as inp:
+		while True:
+			result = inp.read(4096)
+			if len(result) == 0:
+				break
+			if last is not None:
+				sys.stdout.write(last)
+			sys.stdout.write(result[:-1])
+			last = result[-1:]
+	return ord(last)
 
 
 def run_daemon():
@@ -73,6 +79,8 @@ def run_daemon():
 		old_stdout = sys.stdout
 		sys.stdout = open(wr, "w")
 		rc = driver.main(args)
+		# encode return code in the last byte of stdout
+		sys.stdout.write(chr(rc))
 
 		HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
 		sys.stdout.close()
@@ -87,8 +95,8 @@ def main():
 		os.mkfifo(wr)
 
 	if os.environ.get("AWSR_CLIENT") == "True":
-		run_client()
-		return
+		rc = run_client()
+		sys.exit(rc)
 	elif os.environ.get("AWSR_DAEMON") == "True":
 		run_daemon()
 		return
