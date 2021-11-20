@@ -4,8 +4,6 @@
 import os
 import sys
 import tempfile
-import psutil
-import subprocess
 
 rd = tempfile.gettempdir() + "/awsr_rd"
 wr = tempfile.gettempdir() + "/awsr_wr"
@@ -94,6 +92,8 @@ def main():
 		return
 
 	# fork if awsr daemon is not already running
+	import psutil
+	import subprocess
 	ps = psutil.process_iter(attrs=["cmdline"])
 	procs = 0
 	for p in ps:
