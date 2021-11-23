@@ -76,7 +76,10 @@ def run_daemon():
 		sys.stdin = inp
 		old_stdout = sys.stdout
 		sys.stdout = open(wr, "w")
-		rc = driver.main(args)
+		try:
+			rc = driver.main(args)
+		except SystemExit as e:
+			rc = 2
 		# encode return code in the last byte of stdout
 		sys.stdout.write(chr(rc))
 
