@@ -90,7 +90,11 @@ def main():
 		run_client()
 		return
 	elif os.environ.get("AWSR_DAEMON") == "True":
-		run_daemon()
+		try:
+			run_daemon()
+		finally:
+			os.remove(rd)
+			os.remove(wr)
 		return
 
 	# fork if awsr daemon is not already running
