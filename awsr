@@ -75,16 +75,18 @@ def run_daemon():
 
 		sys.stdin = inp
 		old_stdout = sys.stdout
-		sys.stdout = open(wr, "w")
 		try:
-			rc = driver.main(args)
-		except SystemExit as e:
-			rc = 2
-		# encode return code in the last byte of stdout
-		sys.stdout.write(chr(rc))
+			with open(wr, "w") as sys.stdout:
+				try:
+					rc = driver.main(args)
+				except SystemExit as e:
+					rc = 2
+				# encode return code in the last byte of stdout
+				sys.stdout.write(chr(rc))
 
-		HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
-		sys.stdout.close()
+				HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
+		except BrokenPipeError:
+			pass
 		sys.stdout = old_stdout
 		inp.close()
 
