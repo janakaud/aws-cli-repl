@@ -10,16 +10,15 @@ wr = tempfile.gettempdir() + "/awsr_wr"
 
 
 def run_client():
-	out = open(rd, "w")
-	out.write(" ".join(sys.argv))
-	out.write("\n")
-	if "-" in sys.argv:
-		while True:
-			data = sys.stdin.read(4096)
-			if data == "":
-				break
-			out.write(data)
-	out.close()
+	with open(rd, "w") as out:
+		out.write(" ".join(sys.argv))
+		out.write("\n")
+		if "-" in sys.argv:
+			while True:
+				data = sys.stdin.read(4096)
+				if data == "":
+					break
+				out.write(data)
 
 	last = None
 	with open(wr, "r") as inp:
@@ -60,35 +59,34 @@ def run_daemon():
 
 	driver = create_clidriver()
 	while True:
-		inp = open(rd, "r")
-		os.dup2(inp.fileno(), 0)
-		args = bytes()
-		while True:
-			ch = os.read(inp.fileno(), 1)
-			if ch == b"\n" or ch == b"":
-				break
-			args += ch
-		args = args.decode("utf-8").split(" ")[1:]
+		with open(rd, "r") as inp:
+			os.dup2(inp.fileno(), 0)
+			args = bytes()
+			while True:
+				ch = os.read(inp.fileno(), 1)
+				if ch == b"\n" or ch == b"":
+					break
+				args += ch
+			args = args.decode("utf-8").split(" ")[1:]
 
-		if len(args) > 0 and args[0] == "exit":
-			sys.exit(0)
+			if len(args) > 0 and args[0] == "exit":
+				sys.exit(0)
 
-		sys.stdin = inp
-		old_stdout = sys.stdout
-		try:
-			with open(wr, "w") as sys.stdout:
-				try:
-					rc = driver.main(args)
-				except SystemExit as e:
-					rc = 2
-				# encode return code in the last byte of stdout
-				sys.stdout.write(chr(rc))
+			sys.stdin = inp
+			old_stdout = sys.stdout
+			try:
+				with open(wr, "w") as sys.stdout:
+					try:
+						rc = driver.main(args)
+					except SystemExit as e:
+						rc = 2
+					# encode return code in the last byte of stdout
+					sys.stdout.write(chr(rc))
 
-				HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
-		except BrokenPipeError:
-			pass
-		sys.stdout = old_stdout
-		inp.close()
+					HISTORY_RECORDER.record('CLI_RC', rc, 'CLI')
+			except BrokenPipeError:
+				pass
+			sys.stdout = old_stdout
 
 
 def main():
